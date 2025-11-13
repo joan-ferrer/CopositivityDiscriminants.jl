@@ -1,0 +1,7 @@
+name = "CopositivityDiscriminants"
+uuid = "bba005fc-0f3c-480a-8e42-a26130d8489d"
+authors = ["Elisenda Feliu, Joan Ferrer and Máté Telek"]
+version = "1.0.0-DEV"
+
+[compat]
+julia = "1.10"
