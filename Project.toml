@@ -3,5 +3,13 @@ uuid = "bba005fc-0f3c-480a-8e42-a26130d8489d"
 authors = ["Elisenda Feliu, Joan Ferrer and Máté Telek"]
 version = "1.0.0-DEV"
 
+[deps]
+HomotopyContinuation = "f213a82b-91d6-5c5d-acf7-10f1c761b327"
+LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Oscar = "f1435218-dba5-11e9-1e4d-f1a5fab5fc13"
+
 [compat]
+HomotopyContinuation = "2.15.2"
+LinearAlgebra = "1.11.0"
+Oscar = "1.5.0"
 julia = "1.10"
