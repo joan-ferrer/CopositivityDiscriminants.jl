@@ -3,7 +3,7 @@ module CopositivityDiscriminants
 using HomotopyContinuation
 using Oscar
 using LinearAlgebra
-import Arblib
+using Arblib
 
 include("results.jl")
 include("check_copositivity.jl")
