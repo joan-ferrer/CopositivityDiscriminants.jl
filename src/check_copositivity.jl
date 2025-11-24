@@ -37,10 +37,42 @@ function check_copositivity(f::Expression, nonseparable::Bool=false)
     HomotopyContinuation.@var t
     vars_t = [t; vars...]
 
-    # Exponents & coefficients split by sign
+    # Exponents & coefficients
     exps, coeffs = exponents_coefficients(f, vars)   # exps: (dimension × nterms)
+
+
+    # ---------------- Oscar checks on the Newton polytope ----------------
+
+    # Newton polytope: convex hull of all exponent vectors
+    # exps has columns = exponent vectors, so we transpose to get rows = points
+    newton_poly = Oscar.convex_hull(Matrix(exps'))
+
+    # 1) Hull must be full-dimensional
+    @assert Oscar.is_fulldimensional(newton_poly) "Newton polytope of f must be full-dimensional."
+
+    # Split by sign 
     pos_idx = findall(>=(0), coeffs)
     neg_idx = findall(<(0),  coeffs)
+
+    # 2) Every negative exponent must be an interior lattice point
+
+    # Check that there is at least one negative term
+    @assert !isempty(neg_idx) "Polynomial must have at least one term with negative coefficient."
+
+    interior_pts = collect(Oscar.interior_lattice_points(newton_poly))
+
+    @assert !isempty(interior_pts) "Newton polytope has no interior lattice points but f has monomials with negative coefficients."
+
+    for j in neg_idx
+        e = exps[:, j]                         # exponent vector (Int)
+        e_zz = [Oscar.ZZ(e[i]) for i in 1:dimension]  # same vector in ZZ
+
+        is_interior = any(p -> all(p[i] == e_zz[i] for i in 1:dimension),
+                        interior_pts)
+
+        @assert is_interior "Exponent $(collect(e)) with negative coefficient is not an interior lattice point of the Newton polytope."
+    end
+
 
     pos_coeffs = coeffs[pos_idx]
     neg_coeffs = coeffs[neg_idx]
