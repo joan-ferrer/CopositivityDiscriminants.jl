@@ -6,7 +6,7 @@
 [![Coverage](https://codecov.io/gh/joan-ferrer/CopositivityDiscriminants.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/joan-ferrer/CopositivityDiscriminants.jl)
 
 
-[CopositivityDiscriminants.jl](https://github.com/joan-ferrer/CopositivityDiscriminants.jl) is a proof-of-concept Julia package that implements the methods developed in LINK TO PAPER for checking copositivity (i.e. nonnegativity on  the positive orthant) of real polynomials. 
+[CopositivityDiscriminants.jl](https://github.com/joan-ferrer/CopositivityDiscriminants.jl) is a proof-of-concept Julia package that implements the methods developed in [arXiv:2512.07373](https://arxiv.org/abs/2512.07373) for checking copositivity (i.e. nonnegativity on  the positive orthant) of real polynomials. 
 
 Currently, it implements those methods for polynomials with full dimensional Newton polytope and such that no term with negative coefficient lies on the boundary of the Newton polytope. 
 
