@@ -15,7 +15,7 @@ get_interval(c) = begin
 end
 
 """
-    check_copositivity(f::Expression, nonseparable::Bool=false)
+    check_copositivity(f::Expression, nonseparable::Bool=false,h=nothing)
 
 Builds f_t by multiplying all negative-coefficient monomials by a parameter t,
 sets up the system [f_t; x_i * ∂f_t/∂x_i], solves & certifies, and
@@ -24,11 +24,16 @@ returns a `CoposCheckResult` summarizing:
 - whether t=1 lies in that min-t certificate's certified interval,
 - the min-t estimate, certificates, and system.
 
-`nonseparable=true` constructs an special homotopy for polynomials with 
+Keyword Arguments:
+-`nonseparable=true` constructs an special homotopy for polynomials with 
 nonseparable signed supports: it constructs barycentric start parameters via an Oscar polyhedron,
 tracks to the target coefficients, substitutes parameters, and certifies.
+-`h::Union{Nothing, AbstractVector{Int}}`: Specifies the the height function determining the exponent
+ of t multiplying each negative term. The order should match the order of the negative terms determined 
+ by HomotopyContinuation's internal polynomial parsing (typically graded lexicographic). 
+ If `nothing`, defaults to 1 for all negative terms.
 """
-function check_copositivity(f::Expression, nonseparable::Bool=false)
+function check_copositivity(f::Expression, nonseparable::Bool=false; h::Union{Nothing, AbstractVector{Int}}=nothing)
     # Variables / data from f
     vars = variables(f)
     dimension = length(vars)
@@ -86,84 +91,38 @@ function check_copositivity(f::Expression, nonseparable::Bool=false)
     pos_monos = [monomial(vars, e) for e in pos_exps]
     neg_monos = [monomial(vars, e) for e in neg_exps]
 
+
+    # ---------------- Handle t exponents ----------------
+    if h === nothing
+        t_exps = ones(Int, length(neg_idx))
+    else
+        @assert length(h) == length(neg_idx) "Provided $(length(h)) h exponents, but f has $(length(neg_idx)) negative terms."
+        t_exps = h
+
+        # Log the mapping so the user can verify the internal order matches their expectations
+        mapping_strings = ["t^$(t_exps[j]) * ($(neg_coeffs[j]) * $(neg_monos[j]))" for j in eachindex(neg_monos)]
+        @info "Applied height function to negative terms:" text=join(mapping_strings, "\n  ")
+    end
+    local final_system, C, pos_certs, method_used
     if !nonseparable
         # ------------------------ General case ------------------------
-        # f_t = sum(pos) + t * sum(neg)
+        method_used = :general
+        
+        # Apply the specific t exponent to each negative term
         f_t = sum(pos_coeffs[j] * pos_monos[j] for j in eachindex(pos_monos)) +
-              t * sum(neg_coeffs[j] * neg_monos[j] for j in eachindex(neg_monos))
+              sum((t^t_exps[j]) * neg_coeffs[j] * neg_monos[j] for j in eachindex(neg_monos))
 
-    
         eqs = [f_t; [v * differentiate(f_t, v) for v in vars]...]
-
-        F = System(eqs; variables=vars_t)
-        result = HomotopyContinuation.solve(F)
-
-        C = certify(F, result)
-        certs = certificates(C)
-
-        # Keep only positive certificates
-        pos = [c for c in certs if HomotopyContinuation.is_positive(c)]
-
-        # If no positive certificates
-        if isempty(pos)
-            return CoposCheckResult(;
-                copositive = false,
-                method = :general,
-                t_min = NaN,
-                system = F,
-                cert_result = C,
-                positive_certs = HomotopyContinuation.AbstractSolutionCertificate[],
-                certified_interval_t_min = nothing,
-            )
-        end
-
-        # Choose the positive cert with minimal real midpoint of t (first coord)
-        t_mids = map(pos) do c
-            z = solution_candidate(c)      # Complex midpoint vector
-            real(z[1])
-        end
-        imin = argmin(t_mids)
-        cmin = pos[imin]
-        t_min = t_mids[imin]
-
-        X = get_interval(cmin)
-        tball = X === nothing ? nothing : X[1]
-
-        has_t1 = false
-        if tball !== nothing
-            has_t1 = Arblib.contains(Arblib.real(tball), 1) &&
-                     Arblib.contains(Arblib.imag(tball), 0)
-        end
-
-        if has_t1
-            return CoposCheckResult(;
-            copositive = missing,
-            method = :general,
-            t_min = t_min,
-            system = F,
-            cert_result = C,
-            positive_certs = pos,
-            certified_interval_t_min = tball,
-        )
-        else
-            return CoposCheckResult(;
-                copositive = t_min ≥ 1,
-                method = :general,
-                t_min = t_min,
-                system = F,
-                cert_result = C,
-                positive_certs = pos,
-                certified_interval_t_min = tball,
-            )
-        end        
-
+        final_system = System(eqs; variables=vars_t)
+        
+        result = HomotopyContinuation.solve(final_system)
+        C = certify(final_system, result)
+        
     else
         # ----------------  Nonseparable case ----------------
-
+        method_used = :nonseparable
         num_pos = length(pos_exps)
         num_neg = length(neg_exps)
-
-        @assert num_neg ≥ 1 "Nonseparable=true assumes at least one negative term."
 
         Epos = (num_pos == 0) ? zeros(Int, dimension, 0) : hcat(pos_exps...)
         col_pos = vcat(ones(Int, 1, num_pos), Epos)          # (dimension+1)×num_pos
@@ -194,12 +153,11 @@ function check_copositivity(f::Expression, nonseparable::Bool=false)
         HomotopyContinuation.@var p[1:total_terms]
 
         f_t = sum(p[j] * pos_monos[j] for j in 1:num_pos) +
-              t * sum(p[num_pos + j] * neg_monos[j] for j in 1:num_neg)
+              sum((t^t_exps[j]) * p[num_pos + j] * neg_monos[j] for j in 1:num_neg)
 
         eqs = [f_t; [v * differentiate(f_t, v) for v in vars]...]
         F = System(eqs; variables=vars_t, parameters=p)
 
-        # Start & target
         start_solutions = ones(Float64, dimension + 1)
         reordered_coeffs = vcat(pos_coeffs, neg_coeffs)
 
@@ -210,64 +168,45 @@ function check_copositivity(f::Expression, nonseparable::Bool=false)
             seed = 0x68a5c2c6,
         )
 
-        # Substitute target parameters and certify
         eqs_sub = subs(eqs, Dict(p .=> reordered_coeffs))
-        F_sub = HomotopyContinuation.System(eqs_sub)
-
-        C = certify(F_sub, solutions(res))
-        certs = certificates(C)
-        pos = [c for c in certs if HomotopyContinuation.is_positive(c)]
-
-        if isempty(pos)
-            return CoposCheckResult(;
-                copositive = false,
-                method = :nonseparable,
-                t_min = NaN,
-                system = F_sub,
-                cert_result = C,
-                positive_certs = HomotopyContinuation.AbstractSolutionCertificate[],
-                certified_interval_t_min= nothing,
-            )
-        end
-
-        # Min by real midpoint of t among positive certificates
-        t_mids = map(pos) do c
-            z = solution_candidate(c)
-            real(z[1])
-        end
-        imin = argmin(t_mids)
-        cmin = pos[imin]
-        t_min = t_mids[imin]
-
-        X = get_interval(cmin)
-        tball = X === nothing ? nothing : X[1]
-
-        has_t1 = false
-        if tball !== nothing
-            has_t1 = Arblib.contains(Arblib.real(tball), 1) &&
-                     Arblib.contains(Arblib.imag(tball), 0)
-        end
-
-        if has_t1
-            return CoposCheckResult(;
-            copositive = missing,
-            method = :nonseparable,
-            t_min = t_min,
-            system = F,
-            cert_result = C,
-            positive_certs = pos,
-            certified_interval_t_min = tball,
-        )
-        else
-            return CoposCheckResult(;
-                copositive = t_min ≥ 1,
-                method = :nonseparable,
-                t_min = t_min,
-                system = F,
-                cert_result = C,
-                positive_certs = pos,
-                certified_interval_t_min = tball,
-            )
-        end
+        final_system = HomotopyContinuation.System(eqs_sub) 
+        C = certify(final_system, solutions(res))
     end
+# ---------------- Shared Extraction and Return ----------------
+    certs = certificates(C)
+    pos_certs = [c for c in certs if HomotopyContinuation.is_positive(c)]
+
+    if isempty(pos_certs)
+        return CoposCheckResult(;
+            copositive = false,
+            method = method_used,
+            t_min = NaN,
+            system = final_system,
+            cert_result = C,
+            positive_certs = HomotopyContinuation.AbstractSolutionCertificate[],
+            certified_interval_t_min = nothing,
+        )
+    end
+
+    t_mids = map(c -> real(solution_candidate(c)[1]), pos_certs)
+    imin = argmin(t_mids)
+    cmin = pos_certs[imin]
+    t_min = t_mids[imin]
+
+    X = get_interval(cmin)
+    tball = X === nothing ? nothing : X[1]
+
+    has_t1 = tball !== nothing && 
+             Arblib.contains(Arblib.real(tball), 1) && 
+             Arblib.contains(Arblib.imag(tball), 0)
+
+    return CoposCheckResult(;
+        copositive = has_t1 ? missing : (t_min ≥ 1),
+        method = method_used,
+        t_min = t_min,
+        system = final_system,
+        cert_result = C,
+        positive_certs = pos_certs,
+        certified_interval_t_min = tball,
+    )
 end
