@@ -3,19 +3,8 @@ using Oscar
 using Arblib
 using .CopositivityDiscriminants: CoposCheckResult  
 
-# helper to get certified interval of a certificate
-get_interval(c) = begin
-    if c isa HomotopyContinuation.ExtendedSolutionCertificate
-        X = HomotopyContinuation.certified_solution_interval_after_krawczyk(c)
-        X === nothing && (X = HomotopyContinuation.certified_solution_interval(c))
-        return X
-    else
-        return HomotopyContinuation.certified_solution_interval(c)
-    end
-end
-
 """
-    check_copositivity(f::Expression, nonseparable::Bool=false,h::Union{Nothing, AbstractVector{Int}}=nothing,use_extended_cert::Bool=false)
+    check_copositivity(f::Expression, nonseparable::Bool=false,h::Union{Nothing, AbstractVector{Int}}=nothing)
 
 Builds f_t by multiplying all negative-coefficient monomials by a parameter t,
 sets up the system [f_t; x_i * ∂f_t/∂x_i], solves & certifies, and
@@ -32,9 +21,8 @@ tracks to the target coefficients, substitutes parameters, and certifies. It is 
  of t multiplying each negative term. The order should match the order of the negative terms determined 
  by HomotopyContinuation's internal polynomial parsing (typically graded lexicographic). 
  If `nothing`, defaults to 1 for all negative terms.
- - `use_extended_cert::Bool`: If true, uses extended certificates to try to further shrink the certification interval. Default is false.
 """
-function check_copositivity(f::Expression; nonseparable::Bool=false, h::Union{Nothing, AbstractVector{Int}}=nothing,use_extended_cert::Bool=false)
+function check_copositivity(f::Expression; nonseparable::Bool=false, h::Union{Nothing, AbstractVector{Int}}=nothing)
     vars = variables(f)
     dimension = length(vars)
 
@@ -113,7 +101,7 @@ function check_copositivity(f::Expression; nonseparable::Bool=false, h::Union{No
         final_system = System(eqs; variables=vars_t)
         
         result = HomotopyContinuation.solve(final_system)
-        C = certify(final_system, result,extended_certificate=use_extended_cert)
+        C = certify(final_system, result)
         
     else
         # ----------------  Nonseparable case ----------------
@@ -167,7 +155,7 @@ function check_copositivity(f::Expression; nonseparable::Bool=false, h::Union{No
 
         eqs_sub = subs(eqs, Dict(p .=> reordered_coeffs))
         final_system = HomotopyContinuation.System(eqs_sub) 
-        C = certify(final_system, solutions(res),extended_certificate=use_extended_cert)
+        C = certify(final_system, solutions(res))
     end
 # ----------------  Extraction and Return ----------------
     certs = certificates(C)
@@ -184,7 +172,7 @@ function check_copositivity(f::Expression; nonseparable::Bool=false, h::Union{No
         )
     end
 
-    intervals = map(get_interval, pos_certs)
+    intervals = map(certified_solution_interval, pos_certs)
     t_mids = map(intervals) do X
         X === nothing ? Inf : Arblib.midref(Arblib.real(X[1]))
     end
