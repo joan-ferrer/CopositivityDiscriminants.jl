@@ -50,10 +50,10 @@ The convenience alias `MaybeBool = Union{Bool,Missing}` is used for the
 """
 @kwdef struct CoposCheckResult
     copositive::MaybeBool                      # true | false | missing
+    t_min_interval::Any = nothing               # certified interval for t_min
     method::Symbol                         # :general | :nonseparable
     system::Union{Nothing,HomotopyContinuation.System} = nothing # system used for check
     cert_result::Union{Nothing,HomotopyContinuation.CertificationResult} = nothing
     positive_certs::Vector{HomotopyContinuation.AbstractSolutionCertificate} =
         HomotopyContinuation.AbstractSolutionCertificate[]
-    t_min_interval::Any = nothing          
 end

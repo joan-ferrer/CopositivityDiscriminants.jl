@@ -34,7 +34,7 @@ tracks to the target coefficients, substitutes parameters, and certifies. It is 
  If `nothing`, defaults to 1 for all negative terms.
  - `use_extended_cert::Bool`: If true, uses extended certificates to try to further shrink the certification interval. Default is false.
 """
-function check_copositivity(f::Expression; nonseparable::Bool=false, h::Union{Nothing, AbstractVector{Int}}=nothing)
+function check_copositivity(f::Expression; nonseparable::Bool=false, h::Union{Nothing, AbstractVector{Int}}=nothing,use_extended_cert::Bool=false)
     vars = variables(f)
     dimension = length(vars)
 
