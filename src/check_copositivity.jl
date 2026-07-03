@@ -113,7 +113,7 @@ function check_copositivity(f::Expression; nonseparable::Bool=false, h::Union{No
         final_system = System(eqs; variables=vars_t)
         
         result = HomotopyContinuation.solve(final_system)
-        C = certify(final_system, result,extended_certificates=use_extended_cert)
+        C = certify(final_system, result,extended_certificate=use_extended_cert)
         
     else
         # ----------------  Nonseparable case ----------------
@@ -167,7 +167,7 @@ function check_copositivity(f::Expression; nonseparable::Bool=false, h::Union{No
 
         eqs_sub = subs(eqs, Dict(p .=> reordered_coeffs))
         final_system = HomotopyContinuation.System(eqs_sub) 
-        C = certify(final_system, solutions(res),extended_certificates=use_extended_cert)
+        C = certify(final_system, solutions(res),extended_certificate=use_extended_cert)
     end
 # ----------------  Extraction and Return ----------------
     certs = certificates(C)
