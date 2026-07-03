@@ -15,7 +15,7 @@ get_interval(c) = begin
 end
 
 """
-    check_copositivity(f::Expression, nonseparable::Bool=false,h=nothing)
+    check_copositivity(f::Expression, nonseparable::Bool=false,h::Union{Nothing, AbstractVector{Int}}=nothing,use_extended_cert::Bool=false)
 
 Builds f_t by multiplying all negative-coefficient monomials by a parameter t,
 sets up the system [f_t; x_i * ∂f_t/∂x_i], solves & certifies, and
@@ -25,16 +25,16 @@ returns a `CoposCheckResult` summarizing:
 - the min-t estimate, certificates, and system.
 
 Keyword Arguments:
--`nonseparable=true` constructs an special homotopy for polynomials with 
+-`nonseparable::Bool` constructs an special homotopy for polynomials with 
 nonseparable signed supports: it constructs barycentric start parameters via an Oscar polyhedron,
-tracks to the target coefficients, substitutes parameters, and certifies.
+tracks to the target coefficients, substitutes parameters, and certifies. It is false by default.
 -`h::Union{Nothing, AbstractVector{Int}}`: Specifies the the height function determining the exponent
  of t multiplying each negative term. The order should match the order of the negative terms determined 
  by HomotopyContinuation's internal polynomial parsing (typically graded lexicographic). 
  If `nothing`, defaults to 1 for all negative terms.
+ - `use_extended_cert::Bool`: If true, uses extended certificates to try to further shrink the certification interval. Default is false.
 """
-function check_copositivity(f::Expression, nonseparable::Bool=false; h::Union{Nothing, AbstractVector{Int}}=nothing)
-    # Variables / data from f
+function check_copositivity(f::Expression; nonseparable::Bool=false, h::Union{Nothing, AbstractVector{Int}}=nothing)
     vars = variables(f)
     dimension = length(vars)
 
@@ -42,20 +42,17 @@ function check_copositivity(f::Expression, nonseparable::Bool=false; h::Union{No
     HomotopyContinuation.@var t
     vars_t = [t; vars...]
 
-    # Exponents & coefficients
     exps, coeffs = exponents_coefficients(f, vars)   # exps: (dimension × nterms)
 
 
     # ---------------- Oscar checks on the Newton polytope ----------------
 
-    # Newton polytope: convex hull of all exponent vectors
     # exps has columns = exponent vectors, so we transpose to get rows = points
     newton_poly = Oscar.convex_hull(Matrix(exps'))
 
     # 1) Hull must be full-dimensional
     @assert Oscar.is_fulldimensional(newton_poly) "Newton polytope of f must be full-dimensional."
 
-    # Split by sign 
     pos_idx = findall(>=(0), coeffs)
     neg_idx = findall(<(0),  coeffs)
 
@@ -99,9 +96,9 @@ function check_copositivity(f::Expression, nonseparable::Bool=false; h::Union{No
         @assert length(h) == length(neg_idx) "Provided $(length(h)) h exponents, but f has $(length(neg_idx)) negative terms."
         t_exps = h
 
-        # Log the mapping so the user can verify the internal order matches their expectations
-        mapping_strings = ["t^$(t_exps[j]) * ($(neg_coeffs[j]) * $(neg_monos[j]))" for j in eachindex(neg_monos)]
-        @info "Applied height function to negative terms:" text=join(mapping_strings, "\n  ")
+        mapping_strings = ["  t^$(t_exps[j]) * ($(neg_coeffs[j]) * $(neg_monos[j]))" for j in eachindex(neg_monos)]
+        info_message = "Applied height function to negative terms:\n" * join(mapping_strings, "\n")
+        @info info_message
     end
     local final_system, C, pos_certs, method_used
     if !nonseparable
@@ -116,7 +113,7 @@ function check_copositivity(f::Expression, nonseparable::Bool=false; h::Union{No
         final_system = System(eqs; variables=vars_t)
         
         result = HomotopyContinuation.solve(final_system)
-        C = certify(final_system, result)
+        C = certify(final_system, result,extended_certificates=use_extended_cert)
         
     else
         # ----------------  Nonseparable case ----------------
@@ -170,9 +167,9 @@ function check_copositivity(f::Expression, nonseparable::Bool=false; h::Union{No
 
         eqs_sub = subs(eqs, Dict(p .=> reordered_coeffs))
         final_system = HomotopyContinuation.System(eqs_sub) 
-        C = certify(final_system, solutions(res))
+        C = certify(final_system, solutions(res),extended_certificates=use_extended_cert)
     end
-# ---------------- Shared Extraction and Return ----------------
+# ----------------  Extraction and Return ----------------
     certs = certificates(C)
     pos_certs = [c for c in certs if HomotopyContinuation.is_positive(c)]
 
@@ -180,33 +177,43 @@ function check_copositivity(f::Expression, nonseparable::Bool=false; h::Union{No
         return CoposCheckResult(;
             copositive = false,
             method = method_used,
-            t_min = NaN,
             system = final_system,
             cert_result = C,
             positive_certs = HomotopyContinuation.AbstractSolutionCertificate[],
-            certified_interval_t_min = nothing,
+            t_min_interval = nothing,
         )
     end
 
-    t_mids = map(c -> real(solution_candidate(c)[1]), pos_certs)
+    intervals = map(get_interval, pos_certs)
+    t_mids = map(intervals) do X
+        X === nothing ? Inf : Arblib.midref(Arblib.real(X[1]))
+    end
+    
     imin = argmin(t_mids)
     cmin = pos_certs[imin]
-    t_min = t_mids[imin]
+    
+    X_min = intervals[imin]
+    tball = X_min === nothing ? nothing : X_min[1]
 
-    X = get_interval(cmin)
-    tball = X === nothing ? nothing : X[1]
+    has_t1 = false
+    is_strictly_greater = false
 
-    has_t1 = tball !== nothing && 
-             Arblib.contains(Arblib.real(tball), 1) && 
-             Arblib.contains(Arblib.imag(tball), 0)
+    if tball !== nothing
+        real_part = Arblib.real(tball)
+        
+        has_t1 = Arblib.contains(real_part, 1) && Arblib.contains(Arblib.imag(tball), 0)
+        
+        if !has_t1
+            is_strictly_greater = real_part > 1
+        end
+    end
 
     return CoposCheckResult(;
-        copositive = has_t1 ? missing : (t_min ≥ 1),
+        copositive = has_t1 ? missing : is_strictly_greater,
         method = method_used,
-        t_min = t_min,
         system = final_system,
         cert_result = C,
         positive_certs = pos_certs,
-        certified_interval_t_min = tball,
+        t_min_interval = tball,
     )
 end
